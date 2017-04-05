@@ -9,13 +9,13 @@ Golang wrapper for VK API
 Install the package with:
 
 ```bash
-go get github.com/urShadow/go-vk-api
+go get github.com/Cooli88/go-vk-api
 ```
 
 Import it with:
 
 ```go
-import "github.com/urShadow/go-vk-api"
+import "github.com/Cooli88/go-vk-api"
 ```
 
 and use `vk` as the package name inside the code.
@@ -26,7 +26,7 @@ and use `vk` as the package name inside the code.
 package main
 
 import (
-	"github.com/urShadow/go-vk-api"
+	"github.com/Cooli88/go-vk-api"
 	"log"
 	"strconv"
 )
