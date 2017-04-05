@@ -19,6 +19,7 @@ type VK struct {
 
 	logFile  *os.File
 	longPoll *longPoll
+	stopChannel chan bool
 
 	Messages *Messages
 
@@ -78,6 +79,19 @@ func (client *VK) Init(token string) error {
 	return nil
 }
 
+// SetStopChannel set the stopChannel
+func (client *VK) SetStopChannel(stop chan bool) error {
+	client.stopChannel = stop
+
+	return nil
+}
+
+// Close stop listen
+func (client *VK) Close() error {
+	client.stopChannel <- true
+	return nil
+}
+
 // RunLongPoll starts longpoll process
 func (client *VK) RunLongPoll() {
 	if err := client.longPoll.update(); err != nil {
@@ -87,7 +101,7 @@ func (client *VK) RunLongPoll() {
 
 	client.longPoll.chanNewMessage = make(chan *LPMessage)
 
-	go client.longPoll.processEvents()
+	client.longPoll.processEvents(client.stopChannel)
 
 	client.longPoll.process()
 }
