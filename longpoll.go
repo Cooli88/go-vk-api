@@ -12,7 +12,7 @@ const (
 
 // Message's flags
 const (
-	FlagMessageUnread = 1 << iota
+	FlagMessageUnread    = 1 << iota
 	FlagMessageOutBox
 	FlagMessageReplied
 	FlagMessageImportant
@@ -39,12 +39,27 @@ type longPoll struct {
 
 	chanNewMessage  chan *LPMessage
 	eventNewMessage EventNewMessage
+	stop bool
 
 	data struct {
 		server string
 		key    string
 		ts     int64
 	}
+}
+
+type JSONBody struct {
+	Response struct {
+		Server string `json:"server"`
+		Key    string `json:"key"`
+		Ts     int64  `json:"ts"`
+	} `json:"response"`
+}
+
+type jsonBody struct {
+	Failed  int64           `json:"failed"`
+	Ts      int64           `json:"ts"`
+	Updates [][]interface{} `json:"updates"`
 }
 
 func (lp *longPoll) update() error {
@@ -55,14 +70,6 @@ func (lp *longPoll) update() error {
 
 	if err != nil {
 		return err
-	}
-
-	type JSONBody struct {
-		Response struct {
-			Server string `json:"server"`
-			Key    string `json:"key"`
-			Ts     int64  `json:"ts"`
-		} `json:"response"`
 	}
 
 	var body JSONBody
@@ -79,72 +86,72 @@ func (lp *longPoll) update() error {
 }
 
 func (lp *longPoll) process() {
-	resp, err := resty.R().
-		SetQueryParams(RequestParams{
-			"act":  "a_check",
-			"key":  lp.data.key,
-			"ts":   strconv.FormatInt(lp.data.ts, 10),
-			"wait": "25",
-			"mode": "2",
-		}).
-		Get("https://" + lp.data.server)
+	go func() {
+		for {
+			resp, err := resty.R().
+				SetQueryParams(RequestParams{
+				"act":  "a_check",
+				"key":  lp.data.key,
+				"ts":   strconv.FormatInt(lp.data.ts, 10),
+				"wait": "25",
+				"mode": "2",
+			}).
+				Get("https://" + lp.data.server)
 
-	if err != nil {
-		lp.client.Log("[Error] longPoll::process:", err.Error(), "WebResponse:", string(resp.Body()))
-		return
-	}
+			if err != nil {
+				lp.client.Log("[Error] longPoll::process:", err.Error(), "WebResponse:", string(resp.Body()))
+				return
+			}
 
-	type jsonBody struct {
-		Failed  int64           `json:"failed"`
-		Ts      int64           `json:"ts"`
-		Updates [][]interface{} `json:"updates"`
-	}
+			var body jsonBody
 
-	var body jsonBody
+			if err := json.Unmarshal(resp.Body(), &body); err != nil {
+				lp.client.Log("[Error] longPoll::process:", err.Error(), "WebResponse:", string(resp.Body()))
+				return
+			}
 
-	if err := json.Unmarshal(resp.Body(), &body); err != nil {
-		lp.client.Log("[Error] longPoll::process:", err.Error(), "WebResponse:", string(resp.Body()))
-		return
-	}
+			switch body.Failed {
+			case 0:
+				for _, update := range body.Updates {
+					updateID := update[0].(float64)
 
-	switch body.Failed {
-	case 0:
-		for _, update := range body.Updates {
-			updateID := update[0].(float64)
+					switch updateID {
+					case longPollNewMessage:
+						message := new(LPMessage)
 
-			switch updateID {
-			case longPollNewMessage:
-				message := new(LPMessage)
+						message.ID = int64(update[1].(float64))
+						message.Flags = int64(update[2].(float64))
+						message.FromID = int64(update[3].(float64))
+						message.Timestamp = int64(update[4].(float64))
+						message.Subject = update[5].(string)
+						message.Text = update[6].(string)
+						message.Attachments = make(map[string]string)
 
-				message.ID = int64(update[1].(float64))
-				message.Flags = int64(update[2].(float64))
-				message.FromID = int64(update[3].(float64))
-				message.Timestamp = int64(update[4].(float64))
-				message.Subject = update[5].(string)
-				message.Text = update[6].(string)
-				message.Attachments = make(map[string]string)
+						for key, value := range update[7].(map[string]interface{}) {
+							message.Attachments[key] = value.(string)
+						}
 
-				for key, value := range update[7].(map[string]interface{}) {
-					message.Attachments[key] = value.(string)
+						lp.chanNewMessage <- message
+					}
 				}
 
-				lp.chanNewMessage <- message
+				lp.data.ts = body.Ts
+			case 1:
+				lp.data.ts = body.Ts
+				lp.client.Log("ts updated")
+			case 2, 3:
+				if err := lp.update(); err != nil {
+					lp.client.Log("Longpoll update error:", err.Error())
+					return
+				}
+				lp.client.Log("Longpoll data updated")
+			}
+
+			if lp.stop {
+				break
 			}
 		}
-
-		lp.data.ts = body.Ts
-	case 1:
-		lp.data.ts = body.Ts
-		lp.client.Log("ts updated")
-	case 2, 3:
-		if err := lp.update(); err != nil {
-			lp.client.Log("Longpoll update error:", err.Error())
-			return
-		}
-		lp.client.Log("Longpoll data updated")
-	}
-
-	lp.process()
+	}()
 }
 
 func (lp *longPoll) processEvents(stop <-chan bool) {
@@ -156,6 +163,8 @@ func (lp *longPoll) processEvents(stop <-chan bool) {
 					lp.eventNewMessage(message)
 				}
 			case <-stop:
+				close(lp.chanNewMessage)
+				lp.stop = true
 				return
 			}
 		}
