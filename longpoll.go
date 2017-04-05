@@ -147,13 +147,17 @@ func (lp *longPoll) process() {
 	lp.process()
 }
 
-func (lp *longPoll) processEvents() {
-	for {
-		select {
-		case message := <-lp.chanNewMessage:
-			if lp.eventNewMessage != nil {
-				lp.eventNewMessage(message)
+func (lp *longPoll) processEvents(stop <-chan bool) {
+	go func() {
+		for {
+			select {
+			case message := <-lp.chanNewMessage:
+				if lp.eventNewMessage != nil {
+					lp.eventNewMessage(message)
+				}
+			case <-stop:
+				return
 			}
 		}
-	}
+	}()
 }
