@@ -16,9 +16,10 @@ type VK struct {
 	lang    string
 	version string
 	token   string
+	pageId  int
 
-	logFile  *os.File
-	longPoll *longPoll
+	logFile     *os.File
+	longPoll    *longPoll
 	stopChannel chan bool
 
 	Messages *Messages
@@ -86,6 +87,18 @@ func (client *VK) SetStopChannel(stop chan bool) error {
 	return nil
 }
 
+// SetLongpoolTs set the ts
+func (client *VK) SetPageId(pageId  int) error {
+	client.pageId = pageId
+
+	return nil
+}
+
+// SetLongpoolTs set the ts
+func (client *VK) GetPageId() int {
+	return client.pageId
+}
+
 // Close stop listen
 func (client *VK) Close() error {
 	client.stopChannel <- true
@@ -126,6 +139,11 @@ func (client *VK) Log(a ...interface{}) {
 		log.SetOutput(client.logFile)
 		log.Println(a...)
 	}
+}
+
+// GetToken returns token
+func (client *VK) GetToken(lang string) string {
+	return client.token
 }
 
 // New returns a new VK instance
